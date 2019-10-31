@@ -21,6 +21,8 @@ var CACHE_STATIC_FILES = [
   'https://fonts.googleapis.com/css?family=Roboto:400,700',
   'https://fonts.googleapis.com/icon?family=Material+Icons'
 ];
+
+
 //install -> pre-caching
 self.addEventListener('install', function(event) {
   event.waitUntil(
@@ -51,6 +53,19 @@ self.addEventListener('activate', function(event) {
   );
   return self.clients.claim();
 });
+
+// app shell 여부 확인
+function isAppShell(url, static_files){
+  var cachePath;
+  if (url.indexOf(self.origin) === 0){
+    console.log("mactched", url);
+    cachePath - url.substring(self.origin.length);
+  }
+  else{
+    cachePath = url;
+  }
+  return static_files.indexOf(cachePath) > -1;
+}
 
 //fetch -> 다이나믹 캐시에 저장 & 네트워크 처리
 self.addEventListener('fetch', function(event) {
@@ -83,39 +98,125 @@ self.addEventListener('fetch', function(event) {
   // );
 
   // [4] Cache then Network 전략 : 네트워크와 캐시를 동시에 접근하는 전략 -> feed.js 참조
+  // [4] Dynamic caching 전략 같이 사용
+  // cache then network & dynamic caching
 
+  var url = 'https://pwa-gram-a5593.firebaseio.com/posts.json';
 
-
-
-  // [5] cache with network 전략
-  // 캐쉬에 응답이 있는 경우 caching first <-> 네트워크 응답이 우선인 경우 캐쉬가 아닌 network first
-  event.respondWith(
-    caches.match(event.request)
-      .then(function(response){
-        if(response){
-          return response;// 서버까지 안가고 오프라인에서 처리함
-        }
-        else{
-          return fetch(event.request)
-            // 다이나믹 캐시에 저장
-            .then(function(res){
-              caches.open(DYNAMIC_CACHE_VERSION)
-                    .then(function(cache){
-                      cache.put(event.request.url, res.clone());
-                      return res;
-                    })
-            })
-            // 에러처리
-            .catch(function(err){
-              console.log(err);
-              //오프 라인에 해당 화면에 담기지 않은 경우.
-              return caches.open(STATIC_CACHE_VERSION)
-                    .then(function(cache){
-                      //없는 페이지를 디폴틀로 올려준다
-                      return cache.match('/offline.html');
-                    })
+  // 온라인 네트워크 일때 : 
+  if(event.request.url.indexOf(url) > -1){
+    console.log('[Service Worker] 온라인 네트웍크');
+    event.respondWith(
+      caches.open(DYNAMIC_CACHE_VERSION)
+            .then(function (cache) {
+              return fetch(event.request)
+            .then(function (response) {
+              cache.put(event.request.url, response.clone());
+              return response;
             });
-        }
-      })
+        })
+      );
+  }
+  // app shell을 요청할 때 무조건 캐쉬 온리 전략으로 간다.
+  else if (isAppShell(event.request.url, CACHE_STATIC_FILES)) {
+    console.log('[Service Worker] app shall 이기 때문에 캐쉬에서 응답함');
+    event.respondWith(
+      caches.match(event.request)
+    );
+  }
+  // 오프라인 일때 -> 기존에 방식 그대로 사용
+  else{
+    event.respondWith(
+      caches.match(event.request)
+        .then(function(response){
+          if(response){
+            console.log('[Service Worker] 오프라인');
+            return response;// 서버까지 안가고 오프라인에서 처리함
+          }
+          else{
+            return fetch(event.request)
+              // 다이나믹 캐시에 저장
+              .then(function(res){
+                caches.open(DYNAMIC_CACHE_VERSION)
+                      .then(function(cache){
+                        cache.put(event.request.url, res.clone());
+                        return res;
+                      })
+              })
+              // 에러처리
+              .catch(function(err){
+                console.log(err);
+                //오프 라인에 해당 화면에 담기지 않은 경우.
+                return caches.open(STATIC_CACHE_VERSION)
+                      .then(function(cache){
+                        //없는 페이지를 디폴틀로 올려준다
+                        return cache.match('/offline.html');
+                      })
+              });
+          }
+        })
+    );
+  }
+
+
+
+  // [6] cache with network 전략
+  // 캐쉬에 응답이 있는 경우 caching first <-> 네트워크 응답이 우선인 경우 캐쉬가 아닌 network first
+  // event.respondWith(
+  //   caches.match(event.request)
+  //     .then(function(response){
+  //       if(response){
+  //         return response;// 서버까지 안가고 오프라인에서 처리함
+  //       }
+  //       else{
+  //         return fetch(event.request)
+  //           // 다이나믹 캐시에 저장
+  //           .then(function(res){
+  //             caches.open(DYNAMIC_CACHE_VERSION)
+  //                   .then(function(cache){
+  //                     cache.put(event.request.url, res.clone());
+  //                     return res;
+  //                   })
+  //           })
+  //           // 에러처리
+  //           .catch(function(err){
+  //             console.log(err);
+  //             //오프 라인에 해당 화면에 담기지 않은 경우.
+  //             return caches.open(STATIC_CACHE_VERSION)
+  //                   .then(function(cache){
+  //                     //없는 페이지를 디폴틀로 올려준다
+  //                     return cache.match('/offline.html');
+  //                   })
+  //           });
+  //       }
+  //     })
+  // );
+
+});
+
+self.addEventListener('notificationclick', function (event) {
+  var notification = event.notification;
+  var action = event.action;
+  console.log(notification);
+  if (action !== 'confirm') {
+    console.log('Confirm was chosen');
+    notification.close();
+  } else {
+    console.log(action);
+    notification.close();
+  }
+});
+
+self.addEventListener('notificationclose', function (event) {
+  console.log('Notification closed', event);
+});
+
+self.addEventListener('push', function (event) {
+  console.log('푸시 왔숑!');
+  var options = {
+    body: event.data.text()
+  };
+  event.waitUntil(
+    self.registration.showNotification('푸시가 왔숑!', options)
   );
 });
